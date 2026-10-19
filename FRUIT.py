@@ -42,6 +42,7 @@ from TOOLS.QT_MatchForm import MatchModel
 from TOOLS.QT_MatchForm import MatchForm
 from TOOLS.CredentialsPopUp import CredDialog
 from TOOLS.Utilities import UtilitiesPage
+from TOOLS.ui_jobs import Job
 
 # processes to run on queued threads
 import threading
@@ -75,6 +76,7 @@ class MainWindow(QWidget):
         self.twitchUserID = None
         self.youtubeUserID = None
         self.YouTube = None
+        self.youtube_job = None
         self.matchModel = MatchModel()
         self.stop_event = threading.Event()
 
@@ -152,6 +154,13 @@ class MainWindow(QWidget):
         self.button_FMS = QPushButton('Connect to YouTube')
         self.button_FMS.clicked.connect(self.handleYouTube)
         layout.addRow(self.button_FMS, self.textYouTube)
+        self.youtube_switch = QPushButton('Use another Google account')
+        self.youtube_switch.clicked.connect(lambda: self.handleYouTube(force_login=True))
+        layout.addRow(self.youtube_switch)
+        saved_login_note = QLabel('Sign-in is saved locally on this computer and refreshed when possible. '
+                                 'Google may still require occasional sign-in. An API key cannot authorize uploads.')
+        saved_login_note.setWordWrap(True)
+        layout.addRow(saved_login_note)
         # Playlist
         self.video_playlist = QLineEdit("https://www.youtube.com/playlist?list=")
         layout.addRow('Playlist URL (optional):', self.video_playlist)
@@ -443,8 +452,8 @@ class MainWindow(QWidget):
         self.show()
     
     def start_sauce_thread(self):
-        if self.utilities.busy():
-            QMessageBox.information(self, 'Operation in progress', 'Wait for TBA linking to finish before starting processing.')
+        if self.utilities.busy() or (self.youtube_job is not None and self.youtube_job.isRunning()):
+            QMessageBox.information(self, 'Operation in progress', 'Wait for TBA linking or YouTube sign-in to finish before starting processing.')
             return
         # disable the button to prevent double-click
         self.startThreadButton.setEnabled(False)
@@ -691,17 +700,38 @@ class MainWindow(QWidget):
             self.button_TBA.setStyleSheet('color: red')
             self.button_TBA.repaint()
     
-    def handleYouTube(self):
-        self.textYouTube.setText('<font color="aqua">Authenticate using browser...</font>')
-        self.textYouTube.repaint()
+    def handleYouTube(self, checked=False, force_login=False):
+        if self.youtube_job is not None and self.youtube_job.isRunning():
+            return
+        if any(getattr(self, name, None) is not None and getattr(self, name).is_alive()
+               for name in ('thread_seek', 'thread_build', 'thread_send')):
+            QMessageBox.information(self, 'Processing is active', 'Restart FRUIT before reconnecting or changing the upload account.')
+            return
+        self.textYouTube.setText('Connecting with saved sign-in, or opening your browser if needed…')
+        self.button_FMS.setEnabled(False)
+        self.youtube_switch.setEnabled(False)
+        self.youtube_job = Job(lambda: authenticate_youtube(force_login=force_login), self)
+        self.youtube_job.result.connect(self.youtube_connected)
+        self.youtube_job.failed.connect(self.youtube_failed)
+        self.youtube_job.finished.connect(self.youtube_finished)
+        self.youtube_job.start()
 
-        self.YouTube = authenticate_youtube()
-        self.textYouTube.setText('<font color="green">YouTube authenticated!</font>')
+    def youtube_connected(self, session):
+        self.YouTube = session
+        self.textYouTube.setText('<font color="green">YouTube connected; sign-in saved locally.</font>')
         self.tab.tabBar().setTabTextColor(2, QColor('green'))
-    
+
+    def youtube_failed(self, message):
+        self.textYouTube.setText('Could not connect. Saved sign-in was preserved; check the connection and OAuth client settings.')
+        QMessageBox.warning(self, 'YouTube connection', message)
+
+    def youtube_finished(self):
+        self.button_FMS.setEnabled(True)
+        self.youtube_switch.setEnabled(True)
+
     def closeEvent(self, event):
-        if self.utilities.busy():
-            QMessageBox.information(self, 'Operation in progress', 'Wait for TBA linking to finish before closing FRUIT.')
+        if self.utilities.busy() or (self.youtube_job is not None and self.youtube_job.isRunning()):
+            QMessageBox.information(self, 'Operation in progress', 'Wait for TBA linking or browser sign-in to finish before closing FRUIT.')
             event.ignore()
             return
         super().closeEvent(event)

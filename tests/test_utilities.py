@@ -126,6 +126,74 @@ class TransportError(Exception):
     pass
 
 
+class OAuthCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.token = Path(self.temp.name, 'youtube_token.json')
+        self.client = Path(self.temp.name, 'client_secret.json')
+        self.token.write_text(json.dumps({'client_id': 'test-client', 'scopes': ['scope']}))
+        self.client.write_text(json.dumps({'installed': {'client_id': 'test-client'}}))
+        self.credentials = SimpleNamespace(valid=True, refresh_token='synthetic', refresh=Mock())
+        self.factory = Mock()
+        self.factory.from_authorized_user_info.return_value = self.credentials
+        self.save = Mock()
+        self.helper = functions('TOOLS/oauth_cache.py', ['cached_credentials'],
+            TOKEN_FILE='youtube_token.json', json=json, Credentials=self.factory,
+            Request=Mock(), partial=partial, RefreshError=RefreshError, TransportError=TransportError,
+            save_credentials=self.save)
+
+    def load(self):
+        return self.helper.cached_credentials(['scope'], self.token, self.client)
+
+    def test_valid_token_is_reused_without_refresh(self):
+        self.assertIs(self.load(), self.credentials)
+        self.credentials.refresh.assert_not_called()
+        self.save.assert_not_called()
+
+    def test_expired_token_is_refreshed_and_saved(self):
+        self.credentials.valid = False
+        self.credentials.refresh.side_effect = lambda _: setattr(self.credentials, 'valid', True)
+        self.assertIs(self.load(), self.credentials)
+        self.save.assert_called_once_with(self.credentials, self.token)
+
+    def test_revoked_token_requests_login_but_network_error_does_not(self):
+        self.credentials.valid = False
+        self.credentials.refresh.side_effect = RefreshError()
+        self.assertIsNone(self.load())
+        self.credentials.refresh.side_effect = TransportError()
+        with self.assertRaisesRegex(RuntimeError, 'Check the connection'):
+            self.load()
+        self.save.assert_not_called()
+
+    def test_changed_client_or_missing_scopes_requires_new_consent(self):
+        self.client.write_text(json.dumps({'installed': {'client_id': 'different'}}))
+        self.assertIsNone(self.load())
+        self.client.write_text(json.dumps({'installed': {'client_id': 'test-client'}}))
+        self.token.write_text(json.dumps({'client_id': 'test-client', 'scopes': []}))
+        self.assertIsNone(self.load())
+
+    def test_token_replacement_backs_up_old_nonempty_file(self):
+        old = self.token.read_bytes()
+        helper = functions('TOOLS/oauth_cache.py', ['backup_secret', 'save_credentials'],
+            TOKEN_FILE='youtube_token.json', Path=Path, shutil=shutil, uuid=uuid, tempfile=tempfile, os=os)
+        credentials = SimpleNamespace(to_json=lambda: json.dumps({'synthetic': 'new-token'}))
+        helper.save_credentials(credentials, self.token)
+        backups = list(Path(self.temp.name, 'log', 'oauth-backups').glob('*.json'))
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(backups[0].read_bytes(), old)
+        self.assertEqual(json.loads(self.token.read_text()), {'synthetic': 'new-token'})
+
+    def test_cached_authentication_does_not_open_browser(self):
+        credentials = object()
+        api, auth, flow = Mock(), Mock(), Mock()
+        helper = functions('TOOLS/YouTube.py', ['authenticate_youtube'],
+            googleapiclient=api, google_auth_httplib2=auth,
+            google_auth_oauthlib=SimpleNamespace(flow=flow),
+            cached_credentials=Mock(return_value=credentials), save_credentials=Mock())
+        helper.authenticate_youtube()
+        flow.InstalledAppFlow.from_client_secrets_file.assert_not_called()
+        auth.AuthorizedHttp.assert_called_once_with(credentials, http=api.http.build_http.return_value)
 
 
 if __name__ == '__main__':

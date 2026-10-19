@@ -8,17 +8,35 @@ import json
 import re
 import requests
 from datetime import datetime
+from TOOLS.oauth_cache import cached_credentials, save_credentials
 
-def authenticate_youtube(SCOPES: list=["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]):
-    """Authorize YouTube uploads using the Google resumable-upload transport."""
-    flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
-    flow.redirect_uri = 'http://localhost:8080/'
-    credentials = flow.run_local_server(port=8080)
+def authenticate_youtube(SCOPES: list=["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"], force_login=False):
+    """Authenticates a session with YouTube using oauth
+
+    Args:
+        SCOPES (list): YouTube Data API scopes.
+
+    Returns:
+        youtube : youtube session
+    """
+
+    credentials = None if force_login else cached_credentials(SCOPES)
+    if credentials is None:
+        flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
+        flow.redirect_uri = 'http://localhost:8080/'
+        credentials = flow.run_local_server(port=8080, access_type='offline', prompt='consent', timeout_seconds=180,
+                                            authorization_prompt_message='Complete YouTube sign-in in your browser.',
+                                            success_message='FRUIT sign-in completed. You may close this tab.')
+        save_credentials(credentials)
+
+    # Google's helper excludes HTTP 308 from ordinary redirects: resumable
+    # uploads use it for "Resume Incomplete", without a Location header.
     transport = googleapiclient.http.build_http()
     transport.timeout = 30
     http = google_auth_httplib2.AuthorizedHttp(credentials, http=transport)
-    return googleapiclient.discovery.build("youtube", "v3", http=http)
+    youtube = googleapiclient.discovery.build("youtube", "v3", http=http)
 
+    return youtube
 
 def upload_video(youtube, media_file:str, request_body:dict, thumbnail: str=None, playlistID:str='', progress=None, on_uploaded=None):
     """Uploads a video to YouTube; uses 1700 quota (1600 upload + 50 thumbnail + 50 playlist)
