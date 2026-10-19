@@ -1,5 +1,6 @@
 import requests
 import hashlib
+import json
 
 def postTheBlueAlliance(TBA_Auth_Id:str, TBA_Auth_Secret:str, TBA_eventKey:str, data={}, TBA_Endpoint="/event/{eventKey}/match_videos/add"):
     """Pushes data to The Blue Alliance (TBA) using their write API
@@ -19,21 +20,32 @@ def postTheBlueAlliance(TBA_Auth_Id:str, TBA_Auth_Secret:str, TBA_eventKey:str, 
     # generate the whole API endpoint
     endpoint = '/api/trusted/v1'+TBA_Endpoint.replace('{eventKey}', TBA_eventKey)
 
-    # prepare the information to be hashed, force it to use double-quotes
-    preHash = (TBA_Auth_Secret+endpoint+str(data)).replace("'", '"')
-
-    # apply the md5 hash, as specified in the API documentation
-    postHash = hashlib.md5(preHash.encode("ascii")).hexdigest()
-
-    # define headers for API authentication
+    # Sign exactly the bytes sent; do not separately reconstruct a JSON body.
+    body = json.dumps(data, ensure_ascii=True).encode('utf-8')
+    postHash = hashlib.md5((TBA_Auth_Secret + endpoint).encode('utf-8') + body).hexdigest()
     headers = {
         "X-TBA-Auth-Id": TBA_Auth_Id,
-        "X-TBA-Auth-Sig": postHash
+        "X-TBA-Auth-Sig": postHash,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
     }
-
-    response = requests.post('https://www.thebluealliance.com'+endpoint, headers=headers, json=data, timeout=(10, 30))
+    response = requests.post('https://www.thebluealliance.com'+endpoint, headers=headers,
+                             data=body, timeout=(10, 30), allow_redirects=False)
 
     return response
+
+
+def require_tba_success(response):
+    """HTTP 200 alone does not prove a TBA API operation was accepted."""
+    if response.status_code != 200:
+        raise RuntimeError(f'TBA rejected the link (HTTP {response.status_code}). Check the event key and write credentials.')
+    try:
+        result = response.json()
+    except (ValueError, AttributeError):
+        raise RuntimeError('TBA returned no JSON confirmation. The link was not marked completed; check TBA before retrying.') from None
+    if not isinstance(result, dict) or result.get('Error') or not result.get('Success'):
+        raise RuntimeError('TBA did not confirm success. The link was not marked completed; check TBA before retrying.')
+
 
 def translateMatchString(matchID):
     """translate my match string to what TBA is expecting

@@ -41,6 +41,7 @@ from TOOLS.YoutubeLivestream import getChannelIDFromHandle
 from TOOLS.QT_MatchForm import MatchModel
 from TOOLS.QT_MatchForm import MatchForm
 from TOOLS.CredentialsPopUp import CredDialog
+from TOOLS.Utilities import UtilitiesPage
 
 # processes to run on queued threads
 import threading
@@ -376,6 +377,8 @@ class MainWindow(QWidget):
         self.tab.addTab(page_timings, 'Match Timing')
         self.tab.addTab(page_video, 'Video Input')
         self.tab.addTab(page_TBA, 'The Blue Alliance')
+        self.utilities = UtilitiesPage(self)
+        self.tab.addTab(self.utilities, 'Utilities')
         # set tab colors
         self.tab.tabBar().setTabTextColor(1, QColor('red'))
         self.tab.tabBar().setTabTextColor(2, QColor('yellow'))
@@ -440,6 +443,9 @@ class MainWindow(QWidget):
         self.show()
     
     def start_sauce_thread(self):
+        if self.utilities.busy():
+            QMessageBox.information(self, 'Operation in progress', 'Wait for TBA linking to finish before starting processing.')
+            return
         # disable the button to prevent double-click
         self.startThreadButton.setEnabled(False)
 
@@ -693,6 +699,13 @@ class MainWindow(QWidget):
         self.textYouTube.setText('<font color="green">YouTube authenticated!</font>')
         self.tab.tabBar().setTabTextColor(2, QColor('green'))
     
+    def closeEvent(self, event):
+        if self.utilities.busy():
+            QMessageBox.information(self, 'Operation in progress', 'Wait for TBA linking to finish before closing FRUIT.')
+            event.ignore()
+            return
+        super().closeEvent(event)
+
     def handleThumbnail(self, data, image, forceText = False):
         image.setText('<font color="aqua">Generating thumbnail...</font>')
         image.repaint()
