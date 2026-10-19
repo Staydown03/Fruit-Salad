@@ -40,8 +40,146 @@ def module(path, name):
     return result
 
 
+class PreviewTests(unittest.TestCase):
+    def setUp(self):
+        with patch.dict(sys.modules, {'requests': Mock(), 'pytz': Mock()}):
+            self.d = module('dashboard.py', 'test_dashboard')
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.d.THUMB = str(Path(self.temp.name) / 'live.jpg')
+        self.old = b'\xff\xd8old frame\xff\xd9'
+        Path(self.d.THUMB).write_bytes(self.old)
+
+    def test_failed_or_incomplete_extract_preserves_previous_image(self):
+        for result in (SimpleNamespace(returncode=1), SimpleNamespace(returncode=0)):
+            def fake(cmd, **kw):
+                Path(cmd[-1]).write_bytes(b'partial')
+                return result
+            with patch.object(self.d, 'run', side_effect=fake):
+                with self.assertRaises(RuntimeError):
+                    self.d.extract_preview('recording.mkv', 120)
+            self.assertEqual(Path(self.d.THUMB).read_bytes(), self.old)
+            self.assertFalse(Path(self.d.THUMB + '.pending.jpg').exists())
+
+    def test_timeout_preserves_previous_image(self):
+        with patch.object(self.d, 'run', side_effect=subprocess.TimeoutExpired('ffmpeg', 20)):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.d.extract_preview('recording.mkv', 120)
+        self.assertEqual(Path(self.d.THUMB).read_bytes(), self.old)
+
+    def test_success_publishes_only_complete_replacement(self):
+        new = b'\xff\xd8new frame\xff\xd9'
+        def fake(cmd, **kw):
+            self.assertEqual(Path(self.d.THUMB).read_bytes(), self.old)
+            self.assertEqual(kw['timeout'], 20)
+            Path(cmd[-1]).write_bytes(new)
+            return SimpleNamespace(returncode=0)
+        with patch.object(self.d, 'run', side_effect=fake):
+            self.d.extract_preview('recording.mkv', 120)
+        self.assertEqual(Path(self.d.THUMB).read_bytes(), new)
+
+    def test_media_timeout_keeps_frame_age_and_checks_audio_independently(self):
+        recording = Path(self.temp.name) / 'source.mkv'
+        recording.write_bytes(b'fake recording')
+        self.d.media = {'path': str(recording), 'thumb_at': 123, 'thumb_time': 'old'}
+        with patch.object(self.d, 'read_json', return_value={'video': {'filePath': str(recording)}}), \
+             patch.object(self.d, 'run', return_value=SimpleNamespace(stdout='100')), \
+             patch.object(self.d, 'extract_preview', side_effect=subprocess.TimeoutExpired('ffmpeg', 20)), \
+             patch.object(self.d, 'mean_volume', return_value=-20), \
+             patch.object(self.d.glob, 'glob', return_value=[]):
+            self.d.collect_media()
+        self.assertEqual(self.d.media['thumb_at'], 123)
+        self.assertIn('timed out', self.d.media['preview_error'])
+        self.assertEqual(self.d.media['audio_db'], -20)
+
+    def test_silent_and_failed_audio_are_distinct(self):
+        with patch.object(self.d, 'run', return_value=SimpleNamespace(returncode=0, stderr='mean_volume: -inf dB')):
+            self.assertEqual(self.d.mean_volume([]), -100)
+        with patch.object(self.d, 'run', return_value=SimpleNamespace(returncode=1, stderr='')):
+            self.assertIsNone(self.d.mean_volume([]))
+
+    def test_event_collection_never_runs_ffmpeg_and_includes_upcoming_schedule(self):
+        self.d.ROOT = self.temp.name
+        Path(self.temp.name, 'output').mkdir()
+        cfg = {'event': {'code': 'TEST', 'timezone': 'UTC'}, 'season': {'year': 2026}}
+        review = SimpleNamespace(enabled=lambda: False, all_matches=lambda: {})
+        upcoming = {'tournamentLevel': 'Qualification', 'matchNumber': 2, 'startTime': None, 'teams': []}
+        def read(path, default=None):
+            return cfg if path == 'CONFIG' else default
+        with patch.object(self.d, 'read_json', side_effect=read), \
+             patch.object(self.d, 'read_lines', return_value=[]), \
+             patch.object(self.d, 'first_api', return_value=([], [upcoming])), \
+             patch.object(self.d, 'run', return_value=SimpleNamespace(stdout='1')) as run, \
+             patch.dict(sys.modules, {'TOOLS.review': review}), \
+             patch('TOOLS.review', review, create=True), \
+             patch.object(self.d.os, 'chdir'):
+            self.d.collect()
+        self.assertTrue(self.d.state['api_ok'])
+        self.assertEqual(self.d.state['next_up']['number'], 2)
+        self.assertTrue(all(c.args[0][0] not in ('ffmpeg', 'ffprobe') for c in run.call_args_list))
 
 
+class ClipAudioCacheTests(unittest.TestCase):
+    def setUp(self):
+        PreviewTests.setUp(self)
+        self.d.ROOT = self.temp.name
+        self.d.AUDIO_CACHE = str(Path(self.temp.name) / '.cache' / 'clip-audio.json')
+        Path(self.temp.name, 'output').mkdir()
+
+    def clip(self, name, seconds_ago):
+        path = Path(self.temp.name, 'output', name + '.mp4')
+        path.write_bytes(b'fake clip')
+        stamp = time.time() - seconds_ago
+        os.utime(path, (stamp, stamp))
+        return str(path)
+
+    def test_measurements_survive_restart_but_changed_clips_are_invalidated(self):
+        clip = self.clip('TEST_Q1', 100)
+        with patch.object(self.d, 'mean_volume', return_value=-22) as probe:
+            self.d.collect_clip_audio()
+            self.d.collect_clip_audio()
+        probe.assert_called_once()
+        self.d.clip_audio.clear()
+        self.d.load_clip_audio_cache()
+        self.assertEqual(self.d.clip_audio[clip][2], -22)
+        original = os.stat(clip)
+        Path(clip).write_bytes(b'replaced clip with the same timestamp but a different size')
+        os.utime(clip, ns=(original.st_atime_ns, original.st_mtime_ns))
+        self.d.clip_audio.clear()
+        self.d.load_clip_audio_cache()
+        self.assertNotIn(clip, self.d.clip_audio)
+        with patch.object(self.d, 'mean_volume', return_value=-18):
+            self.d.collect_clip_audio()
+        self.assertEqual(self.d.clip_audio[clip][2], -18)
+
+    def test_failure_does_not_starve_later_clips_and_is_retried(self):
+        first = self.clip('TEST_Q2', 200)
+        second = self.clip('TEST_Q10', 100)
+        with patch.object(self.d, 'mean_volume', side_effect=[None, -20]) as probe:
+            self.d.collect_clip_audio()
+            self.d.collect_clip_audio()
+        self.assertEqual(probe.call_args_list[0].args[0][-1], first)
+        self.assertEqual(probe.call_args_list[1].args[0][-1], second)
+        self.assertIn('will retry', self.d.clip_audio_checks[first]['status'])
+        self.assertEqual(self.d.clip_audio[second][2], -20)
+        with patch.object(self.d, 'mean_volume') as probe:
+            self.d.collect_clip_audio()
+        probe.assert_not_called()
+        self.d.clip_audio_checks[first]['at'] -= 61
+        with patch.object(self.d, 'mean_volume', return_value=-21):
+            self.d.collect_clip_audio()
+        self.assertEqual(self.d.clip_audio[first][2], -21)
+        self.assertNotIn(first, self.d.clip_audio_checks)
+
+    def test_corrupt_cache_is_ignored_and_incomplete_outputs_are_skipped(self):
+        cache = Path(self.d.AUDIO_CACHE)
+        cache.parent.mkdir()
+        cache.write_text('broken cache')
+        self.d.load_clip_audio_cache()
+        self.clip('TEST_Q1.pending', 100)
+        with patch.object(self.d, 'mean_volume') as probe:
+            self.d.collect_clip_audio()
+        probe.assert_not_called()
 
 
 class NetworkTests(unittest.TestCase):
