@@ -73,7 +73,7 @@ class MatchForm(QWidget):
         # --- Match Type ComboBox ---
         self.match_type = QComboBox()
         self.match_type.addItems(["Q = Quals", "P = Playoffs", "F = Finals"])
-        layout.addRow("First Match Type:", self.match_type)
+        layout.addRow("Reference match type:", self.match_type)
 
         self.match_type.currentTextChanged.connect(self.model.setMatchType)
         self.model.matchTypeChanged.connect(self.match_type.setCurrentText)
@@ -83,7 +83,7 @@ class MatchForm(QWidget):
 
         # --- Match Number LineEdit ---
         self.match_number_ref = QLineEdit()
-        layout.addRow("First Match Number:", self.match_number_ref)
+        layout.addRow("Reference match number:", self.match_number_ref)
 
         # Validator: positive integers only
         int_validator = QIntValidator(1, 9999)
@@ -95,7 +95,7 @@ class MatchForm(QWidget):
 
         # --- Timestamp LineEdit with float-second validation ---
         self.timestamp_input = QLineEdit()
-        layout.addRow("Enter timestamp (mm:ss):", self.timestamp_input)
+        layout.addRow("Reference timestamp (mm:ss):", self.timestamp_input)
 
         # Regex: mm:ss or mm:ss.xxx where seconds allow decimals
         timestamp_regex = QRegularExpression(r"^[0-9]{1,2}:[0-5][0-9](\.[0-9]+)?$")
@@ -122,7 +122,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Match Entry System")
+        self.setWindowTitle("Match entry")
 
         # Create the main container widget
         container = QWidget()
@@ -134,7 +134,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.form)
 
         # Example: a button that reads data from the model
-        read_button = QPushButton("Print Match Data")
+        read_button = QPushButton("Show match data")
         read_button.clicked.connect(self.print_data)
         layout.addWidget(read_button)
 
@@ -154,8 +154,8 @@ class MainWindow(QMainWindow):
         timestamp = self.model.timestamp()
 
         text = (
-            f"Match Type: {match_type}\n"
-            f"Match Number: {match_number}\n"
+            f"Match type: {match_type}\n"
+            f"Match number: {match_number}\n"
             f"Timestamp: {timestamp}"
         )
 

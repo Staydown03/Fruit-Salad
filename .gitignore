@@ -9,6 +9,8 @@ CONFIG
 CREDENTIALS
 trial.png
 client_secret.json
+youtube_token.json
+youtube-token-*.tmp
 *.mp4
 *.CONFIG
 *.ipynb

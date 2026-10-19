@@ -5,6 +5,7 @@ import datetime #datetime math
 import threading #multiprocess
 import subprocess #ffmpeg calls
 import math #ceil for Twitch segments
+import json
 import pytz #timezone handling
 
 from moviepy import VideoFileClip, concatenate_videoclips
@@ -32,6 +33,7 @@ from TOOLS.logging import match2str
 from TOOLS.thumbnails import generateThumbnail
 from TOOLS.YouTube import formatYouTubeTitle
 from TOOLS.YouTube import upload_video
+from TOOLS.YouTube import finish_video
 from TOOLS.TBA import translateMatchString
 from TOOLS.TBA import postTheBlueAlliance
 from TOOLS import status
@@ -62,6 +64,7 @@ def process_queue_seek(user_data, stop_event, QLabelCounter, CREDENTIALS):
     """
     while not stop_event.is_set():
         try:
+            status.update('seek', phase='checking', since=time.time())
             # obtain match information from FMS
             if user_data['program'] == 'FRC':
                 matchesRaw = getMatchesFromFMS(user_data['season']['year'], user_data['event']['code'], 'FRC', CREDENTIALS['FRC_username'], CREDENTIALS['FRC_key'])
@@ -80,19 +83,24 @@ def process_queue_seek(user_data, stop_event, QLabelCounter, CREDENTIALS):
             with open('log/seek.txt', 'a') as file:
                 for match in matches_new:
                     match_str = match2str(match, user_data['event']['code'])
+                    saved = status.video_record(match_str)
                     file.write(match_str+"\n")
-                    queue_build.put(match)
+                    if saved.get('video_id'):
+                        match['videoID'] = saved['video_id']
+                        queue_send.put(match)
+                    else:
+                        queue_build.put(match)
                     incrementCountText(QLabelCounter)
                     print('SEEK: '+match_str)
-            status.update('seek', ok=True, last_poll=time.time(), ready=len(matches_list), new=[match2str(m, user_data['event']['code']) for m in matches_new])
+            status.update('seek', ok=True, phase='waiting', last_poll=time.time(), ready=len(matches_list), new=[match2str(m, user_data['event']['code']) for m in matches_new])
         except Exception as error:
             # e.g. flaky internet; keep the seek thread alive and try again next round
             print(f'SEEK ERROR (retrying in 100s): {error!r}')
-            status.update('seek', ok=False, last_poll=time.time())
+            status.update('seek', ok=False, phase='waiting to retry', last_poll=time.time())
             status.error('seek', repr(error))
 
         # wait a little bit before looking for new matches
-        time.sleep(100)
+        stop_event.wait(100)
 
 def build_video_moviepy(user_data:dict, secStart:float, secPost:float, outputFilename='output/match.mp4'):
     """
@@ -122,6 +130,47 @@ def build_video_moviepy(user_data:dict, secStart:float, secPost:float, outputFil
 
         # save the results as a file
         final.write_videofile(outputFilename, audio_codec='aac')
+
+def validate_clip(path, minimum_duration=None):
+    """Require readable video lasting at least the match itself, with no upper limit."""
+    probe = subprocess.run(
+        ['ffprobe', '-v', 'error', '-show_entries', 'format=duration:stream=codec_type',
+         '-of', 'json', path], capture_output=True, text=True, check=True, timeout=30)
+    info = json.loads(probe.stdout)
+    duration = float(info.get('format', {}).get('duration', 0))
+    if not math.isfinite(duration) or duration <= 0 or not any(s.get('codec_type') == 'video' for s in info.get('streams', [])):
+        raise RuntimeError('Built clip has no readable video or positive duration')
+    if minimum_duration is not None and duration < minimum_duration:
+        raise RuntimeError('Built clip is shorter than the configured match duration')
+
+
+def reuse_built_clip(user_data, match, counter):
+    """The published MP4 is the persistent build record; validate before reuse.
+
+    Check before opening the source or running optional audio sync, so an upload
+    can recover even when the original recording is no longer selected/available.
+    Pending MP4s are never considered completed builds.
+    """
+    match_str = match2str(match, user_data['event']['code'])
+    output = os.path.join('output', match_str + '.mp4')
+    if not os.path.isfile(output):
+        return False
+    duration = user_data['season']['secondsOfMatch']
+    status.update('build', match=match_str, phase='checking existing clip', since=time.time())
+    try:
+        validate_clip(output, duration)
+    except (subprocess.CalledProcessError, ValueError, RuntimeError):
+        print('EXISTING CLIP INVALID - rebuilding: ' + match_str)
+        return False
+    # A timeout or missing ffprobe is not proof that the existing clip is bad.
+    # Let the worker retry/report the failure instead of overwriting it.
+    queue_send.put(match)
+    incrementCountText(counter)
+    print('REUSING BUILT CLIP: ' + match_str)
+    status.update('build', match=None, phase='idle', last=match_str,
+                  last_done=time.time(), reused=True)
+    return True
+
 
 def build_video_ffmpeg(user_data:dict, secStart:float, secPost:float, outputFilename='output/match.mp4'):
     """
@@ -155,6 +204,8 @@ def build_video_ffmpeg(user_data:dict, secStart:float, secPost:float, outputFile
     match_file = 'input/temp/match.mp4'
     score_file = 'input/temp/score.mp4'
 
+    pending_output = outputFilename + '.pending.mp4'
+
     # Extract match segment with audio fades
     subprocess.run([
         'ffmpeg', '-y',
@@ -166,7 +217,7 @@ def build_video_ffmpeg(user_data:dict, secStart:float, secPost:float, outputFile
         '-c:v', 'libx264',
         '-c:a', 'aac',
         str(match_file)
-    ], check=True)
+    ], check=True, timeout=900)
 
     # Extract score segment with audio fade out
     subprocess.run([
@@ -178,7 +229,7 @@ def build_video_ffmpeg(user_data:dict, secStart:float, secPost:float, outputFile
         '-af', f'afade=t=in:st=0:d=0.5,afade=t=out:st={score_duration - 2}:d=2',
         '-c:v', 'libx264',
         '-c:a', 'aac',
-        str(score_file)], check=True)
+        str(score_file)], check=True, timeout=900)
 
     # Concatenate segments
     subprocess.run([
@@ -187,7 +238,9 @@ def build_video_ffmpeg(user_data:dict, secStart:float, secPost:float, outputFile
         "-f", "concat",
         "-i", "input/temp/concatenate.txt",
         "-c", "copy",
-        str(outputFilename)], check=True)
+        str(pending_output)], check=True, timeout=900)
+    validate_clip(pending_output, user_data['season']['secondsOfMatch'])
+    os.replace(pending_output, outputFilename)
     
     # Clean temp files to prevent using old ones
     if os.path.exists(match_file):
@@ -221,6 +274,9 @@ def process_queue_build_live(user_data:dict, stop_event, QLabelCounter, CREDENTI
         try:
             # grab a match from the build queue, 30 seconds wait for timeout
             match = queue_build.get(timeout=30)
+
+            if reuse_built_clip(user_data, match, QLabelCounter):
+                continue
 
             # get the latest VODs for a user ID (pagination ignored)
             latest_VODs = getLatestTwitchVODs(CREDENTIALS['Twitch_clientID'], CREDENTIALS['Twitch_clientSecret'], user_data['video']['twitchUserID'])
@@ -313,6 +369,9 @@ def process_queue_build_live_local(user_data:dict, stop_event, QLabelCounter, CR
         try:
             # grab a match from the build queue, 30 seconds wait for timeout
             match = queue_build.get(timeout=30)
+
+            if reuse_built_clip(user_data, match, QLabelCounter):
+                continue
 
             # how many seconds into the recording the match starts
             matchStartSec = (match['start'] - recordingStartTime).total_seconds() + user_data['video']['streamDelay']
@@ -419,6 +478,9 @@ def process_queue_build_static(user_data:dict, stop_event, QLabelCounter, matche
         try:
             match = queue_build.get(timeout=30)
 
+            if reuse_built_clip(user_data, match, QLabelCounter):
+                continue
+
             segmentStartDatetime = match['start']-datetime.timedelta(seconds=user_data['season']['secondsBeforeStart'])
             segmentEndDatetime = match['post']+datetime.timedelta(seconds=user_data['season']['secondsAfterPost'])
 
@@ -498,6 +560,10 @@ def process_queue_send(user_data, stop_event, QLabelCounter, YouTube_Session):
 
             matchString = match2str(match, user_data['event']['code'])
 
+            saved_video = status.video_record(matchString)
+            if saved_video.get('video_id'):
+                match['videoID'] = saved_video['video_id']
+
             if YouTube_Session != None:
                 # generate match thumbnail
                 if user_data['program'] == 'FRC':
@@ -542,20 +608,29 @@ def process_queue_send(user_data, stop_event, QLabelCounter, YouTube_Session):
                         continue
 
                 # remember the video ID so a retry (e.g. TBA failed) doesn't upload the match twice
+                def remember_upload(video_id):
+                    # Set in memory first, so a disk failure also reuses this ID on retry.
+                    match['videoID'] = video_id
+                    status.record_video(matchString, video_id=video_id, title=title, tba=False)
+
                 if 'videoID' not in match:
                     status.update('send', match=matchString, phase='uploading', progress=0.0, since=time.time())
-                    match['videoID'] = upload_video(YouTube_Session, 'output/'+matchString+'.mp4', request_body, thumbnailLoc, user_data['YouTube']['playlist'],
-                                                    progress=lambda p: status.update('send', progress=p))
-                    status.record_video(matchString, video_id=match['videoID'], title=title, tba=False)
+                    upload_video(YouTube_Session, 'output/'+matchString+'.mp4', request_body,
+                                 progress=lambda p: status.update('send', progress=p), on_uploaded=remember_upload)
                 videoID = match['videoID']
+                status.record_video(matchString, video_id=videoID, title=title)
+                if not saved_video.get('metadata_done'):
+                    status.update('send', match=matchString, phase='setting thumbnail / playlist', since=time.time())
+                    finish_video(YouTube_Session, videoID, thumbnailLoc, user_data['YouTube']['playlist'])
+                    status.record_video(matchString, metadata_done=True)
                 print(f"UPLOADED: {matchString} -> https://youtu.be/{videoID}")
 
                 if (user_data['program'] == 'FRC') and (user_data['TBA']['eventKey'] != ''):
-                    status.update('send', match=matchString, phase='linking on TBA')
+                    status.update('send', match=matchString, phase='linking on TBA', since=time.time())
                     data = {translateMatchString(match['id']): videoID}
                     response = postTheBlueAlliance(user_data['TBA']['Auth_Id'], user_data['TBA']['Auth_Secret'], user_data['TBA']['eventKey'], data)
                     if response.status_code != 200:
-                        raise RuntimeError(f'TBA returned {response.status_code}: {response.text[:200]}')
+                        raise RuntimeError(f'TBA returned HTTP {response.status_code}')
                     status.record_video(matchString, tba=True)
             
             with open('log/send.txt', 'a') as file:
@@ -568,12 +643,14 @@ def process_queue_send(user_data, stop_event, QLabelCounter, YouTube_Session):
             continue
         except Exception as error:
             # e.g. upload dropped on event wifi; keep the send thread alive and retry
-            status.update('send', match=None, phase='waiting to retry')
+            status.update('send', match=matchString, phase='waiting to retry', since=time.time())
             status.error('send', f'{matchString}: {error!r}')
             match['retries_send'] = match.get('retries_send', 0) + 1
             if match['retries_send'] <= 5:
                 print(f"SEND ERROR (retry {match['retries_send']}/5 in 60s) {matchString}: {error!r}")
-                time.sleep(60)
+                if stop_event.wait(60):
+                    break
                 queue_send.put(match)
             else:
+                status.update('send', match=matchString, phase='failed - restart to retry', since=time.time())
                 print(f"SEND FAILED, giving up on {matchString}: {error!r}")

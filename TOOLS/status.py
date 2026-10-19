@@ -2,6 +2,8 @@ import json         # status files
 import os           # atomic replace
 import threading    # FRUIT's queues run on threads
 import time         # timestamps
+import shutil
+import uuid
 
 """
 
@@ -56,7 +58,62 @@ def record_video(match_str:str, **fields):
         try:
             with open(VIDEOS_FILE) as file:
                 videos = json.load(file)
-        except (OSError, ValueError):
+        except FileNotFoundError:
             videos = {}
         videos.setdefault(match_str, {}).update(fields, updated=time.time())
-        _write(VIDEOS_FILE, videos)
+        # This is the recovery record: a failed write must prevent the worker from
+        # proceeding as though the upload were safely checkpointed.
+        tmp = VIDEOS_FILE + '.tmp'
+        with open(tmp, 'w') as file:
+            json.dump(videos, file, indent=1, default=str)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp, VIDEOS_FILE)
+
+
+def video_record(match_str):
+    """Load an upload checkpoint after a restart; never silently ignore a corrupt ledger."""
+    with _lock:
+        try:
+            with open(VIDEOS_FILE) as file:
+                return json.load(file).get(match_str, {})
+        except FileNotFoundError:
+            return {}
+
+
+def mark_manual_upload(match_str, video_id, event_key):
+    """Record a user-supplied upload after TBA accepts it; preserve old logs first."""
+    with _lock:
+        send_file = os.path.join(os.path.dirname(VIDEOS_FILE), 'send.txt')
+        folder = os.path.join(os.path.dirname(VIDEOS_FILE), 'manual-link-backups')
+        os.makedirs(folder, exist_ok=True)
+        for path in (VIDEOS_FILE, send_file):
+            if os.path.exists(path) and os.path.getsize(path):
+                backup = os.path.join(folder, os.path.basename(path) + '.' + uuid.uuid4().hex)
+                shutil.copy2(path, backup)
+                if os.path.getsize(backup) != os.path.getsize(path) or not os.path.getsize(backup):
+                    raise OSError('Could not verify local processing-log backup')
+        try:
+            with open(VIDEOS_FILE) as file:
+                videos = json.load(file)
+        except FileNotFoundError:
+            videos = {}
+        videos.setdefault(match_str, {}).update(video_id=video_id, tba=True,
+            tba_event_key=event_key, metadata_done=True, manual=True, updated=time.time())
+        pending = VIDEOS_FILE + '.tmp'
+        with open(pending, 'w') as file:
+            json.dump(videos, file, indent=1)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(pending, VIDEOS_FILE)
+        # Append only after the video checkpoint is durable; retries are idempotent.
+        try:
+            with open(send_file) as file:
+                sent = set(file.read().splitlines())
+        except FileNotFoundError:
+            sent = set()
+        if match_str not in sent:
+            with open(send_file, 'a') as file:
+                file.write(match_str + '\n')
+                file.flush()
+                os.fsync(file.fileno())

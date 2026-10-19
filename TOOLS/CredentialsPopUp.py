@@ -13,35 +13,35 @@ GUI for getting API credentials from user
 class CredDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("API Credentials")
+        self.setWindowTitle("API credentials")
         self.setLayout(QVBoxLayout())
         
         self.FRC_username = QLineEdit()
-        self.layout().addWidget(QLabel("FRC API Username:"))
+        self.layout().addWidget(QLabel("FRC API username:"))
         self.layout().addWidget(self.FRC_username)
         self.FRC_key = QLineEdit()
-        self.layout().addWidget(QLabel("FRC API AuthorizationKey:"))
+        self.layout().addWidget(QLabel("FRC API authorization key:"))
         self.layout().addWidget(self.FRC_key)
 
         self.Twitch_clientID = QLineEdit()
-        self.layout().addWidget(QLabel("Twitch Client ID:"))
+        self.layout().addWidget(QLabel("Twitch client ID:"))
         self.layout().addWidget(self.Twitch_clientID)
         self.Twitch_clientSecret = QLineEdit()
-        self.layout().addWidget(QLabel("Twitch Client Secret:"))
+        self.layout().addWidget(QLabel("Twitch client secret:"))
         self.layout().addWidget(self.Twitch_clientSecret)
 
         self.Youtube_API_Key = QLineEdit()
-        self.layout().addWidget(QLabel("Youtube Data API Key:"))
+        self.layout().addWidget(QLabel("YouTube Data API key:"))
         self.layout().addWidget(self.Youtube_API_Key)
 
         self.FTC_username = QLineEdit()
-        self.layout().addWidget(QLabel("FTC API Username:"))
+        self.layout().addWidget(QLabel("FTC API username:"))
         self.layout().addWidget(self.FTC_username)
         self.FTC_key = QLineEdit()
-        self.layout().addWidget(QLabel("FTC API AuthorizationKey:"))
+        self.layout().addWidget(QLabel("FTC API authorization key:"))
         self.layout().addWidget(self.FTC_key)
         
-        self.save_close_button = QPushButton("Save && Close")
+        self.save_close_button = QPushButton("Save and close")
         self.save_close_button.clicked.connect(self.save_and_close)
         self.layout().addWidget(self.save_close_button)
         
