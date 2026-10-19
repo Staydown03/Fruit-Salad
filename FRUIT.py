@@ -95,15 +95,23 @@ class MainWindow(QWidget):
          - information on how to use tool
          - mostly text
         '''
-        bodyText = "<ol style='font-size: 16px !important;'><li><b>Event Info</b>: used to obtain match details from FMS, learn more at https://frc-events.firstinspires.org/services/api</li><li>Connect to your YouTube account using the browser. Define <b>YouTube Settings</b> for video upload.</li><li>Supply <b>Thumbnail Info</b> and test its generation.</li><li>Set <b>Match Timing</b> offsets, relative to match start and scores post (in seconds).</li><li>Select the <b>Video Input</b> source to be trimmed.</li><li>Connect to <b>The Blue Alliance</b> for match video visibility.</li><li><b>Bake CONFIG</b> to save on future re-entry time.</li><li>Click the <b>Make The Sauce</b> button to get everything rolling!"
+        bodyText = ("<ol style='font-size: 16px !important;'>"
+                    "<li>Enter the season and event code in <b>Event information</b>, then load the event data from FIRST.</li>"
+                    "<li>Connect your channel in <b>YouTube settings</b> and enter the upload details.</li>"
+                    "<li>Choose a sponsor logo or event details in <b>Thumbnail settings</b>, then generate a test thumbnail.</li>"
+                    "<li>Review <b>Match timing</b>. All values are in seconds.</li>"
+                    "<li>Select the recording source in <b>Video input</b>.</li>"
+                    "<li>Enter optional event write credentials in <b>The Blue Alliance</b> to link uploaded videos.</li>"
+                    "<li>Use <b>Bake CONFIG</b> to save the configuration, then <b>Make the Sauce</b> to start processing.</li>"
+                    "<li>Use <b>Utilities</b> to link videos you have already uploaded manually.</li></ol>")
 
         page_welcome = QWidget(self)
         layout = QFormLayout()
         page_welcome.setLayout(layout)
-        layout.addRow(QLabel("<h1>FIRST Robotics Uploader from an Indiana Teammate</h1>\n<i>Make each tab green then you're ready to proceed (yellow tabs optional).</i>"))
+        layout.addRow(QLabel("<h1>FIRST Robotics Uploader from an Indiana Teammate</h1>\n<i>Complete the required tabs before starting. Yellow tabs are optional.</i>"))
         layout.addRow(QLabel(bodyText))
         # set/check credentials via dialog pop-up window
-        self.credentialsButton = QPushButton("Set/Check Credentials", self)
+        self.credentialsButton = QPushButton("API credentials", self)
         self.credentialsButton.clicked.connect(lambda: CredDialog(self).exec())
         layout.addRow(self.credentialsButton)
 
@@ -120,25 +128,25 @@ class MainWindow(QWidget):
         page_event.setLayout(layout)
         # select program (FRC/FTC)
         self.program = QComboBox(); self.program.addItems(["FRC", "FTC"])
-        layout.addRow(QLabel("Select program:"), self.program)
+        layout.addRow(QLabel("Program:"), self.program)
         # Event (Season) Year
         self.season_year = QComboBox(); self.season_year.addItems(["2026", "2025", "2024"])
-        layout.addRow(QLabel('Season Year:'), self.season_year)
+        layout.addRow(QLabel('Season year:'), self.season_year)
         # Event Code
         self.event_code = QLineEdit(self);
-        layout.addRow(QLabel('Event Code:'), self.event_code)
+        layout.addRow(QLabel('Event code:'), self.event_code)
         # FMS pull button
-        self.textFMS = QLabel('<font color="red">Event not yet pulled</font>')
-        self.button_FMS = QPushButton('Pull FMS')
+        self.textFMS = QLabel('<font color="red">Event data not loaded</font>')
+        self.button_FMS = QPushButton('Load event data')
         self.button_FMS.clicked.connect(lambda: self.handleFMS(self.season_year.currentText(), self.event_code.text().upper()))
         layout.addRow(self.button_FMS, self.textFMS)
         # Event Name
         self.event_name = QLineEdit(self);
-        layout.addRow(QLabel('Event Name:'), self.event_name)
+        layout.addRow(QLabel('Event name:'), self.event_name)
         # Event Timezone
         self.event_timezone = QComboBox(); self.event_timezone.setEditable(True)
         completerTimezone = QCompleter(pytz.all_timezones); self.event_timezone.setCompleter(completerTimezone)
-        layout.addRow(QLabel('Event Timezone:'), self.event_timezone)
+        layout.addRow(QLabel('Event time zone:'), self.event_timezone)
         
         '''
         YOUTUBE PAGE
@@ -148,9 +156,9 @@ class MainWindow(QWidget):
         page_YouTube = QWidget(self)
         layout = QFormLayout()
         page_YouTube.setLayout(layout)
-        layout.addRow(QLabel('<b>Connect the YouTube channel you want to upload to, accepting both permissions (read & write videos)</b>'))
+        layout.addRow(QLabel('<b>Connect the YouTube channel you want to upload to and grant the requested video permissions.</b>'))
         # Authentication
-        self.textYouTube = QLabel('<font color="red">YouTube not yet authenticated</font>')
+        self.textYouTube = QLabel('<font color="red">YouTube not connected</font>')
         self.button_FMS = QPushButton('Connect to YouTube')
         self.button_FMS.clicked.connect(self.handleYouTube)
         layout.addRow(self.button_FMS, self.textYouTube)
@@ -169,8 +177,8 @@ class MainWindow(QWidget):
         layout.addRow('Description:', self.video_description)
         # Tags
         self.video_tags = QLineEdit('FIRST Indiana Robotics, FIN')
-        layout.addRow(QLabel('Tags (comma-delimited) :'), self.video_tags)
-        layout.addRow(QLabel('<i>program will automatically add year, event code, and program (FRC/FTC)</i>'))
+        layout.addRow(QLabel('Tags (comma-separated):'), self.video_tags)
+        layout.addRow(QLabel('<i>FRUIT automatically adds the year, event code, and program (FRC or FTC).</i>'))
         
         '''
         THUMBNAIL PAGE
@@ -181,22 +189,22 @@ class MainWindow(QWidget):
         page_thumbnail = QWidget(self)
         layout = QFormLayout()
         page_thumbnail.setLayout(layout)
-        layout.addRow(QLabel('<b>Choose a sponsor logo OR fill out more event info for YouTube thumbnail</b>'))
+        layout.addRow(QLabel('<b>Choose a sponsor logo or enter event details for the YouTube thumbnail.</b>'))
         # Sponsor Image
-        self.img_EventSponsor = QPushButton('Select File')
+        self.img_EventSponsor = QPushButton('Select file')
         self.img_EventSponsor.clicked.connect(lambda: self.getFileSponsorImage(self.img_EventSponsor))
-        layout.addRow('Sponsor Logo:', self.img_EventSponsor)
+        layout.addRow('Sponsor logo:', self.img_EventSponsor)
         # Verbose event details
         layout.addRow(QLabel('⸻ or ⸻'))
         self.eventBuilding = QLineEdit(self);  layout.addRow('Building:', self.eventBuilding)
         self.eventCity = QLineEdit(self);  layout.addRow('City:', self.eventCity)
         self.eventDates = QLineEdit(self);  layout.addRow('Dates:', self.eventDates)
         # Force text details over sponsor logo
-        self.thumbnail_force = QCheckBox('Force using additional event info')
+        self.thumbnail_force = QCheckBox('Use event details instead of the sponsor logo')
         layout.addRow(self.thumbnail_force)
         # Test thumbnail using random generator
-        self.image_thumbnail = QLabel('<font color="red">Generate a test thumbnail</font>')
-        self.button_thumbnail = QPushButton('Test Thumbnail')
+        self.image_thumbnail = QLabel('<font color="red">Test thumbnail not generated</font>')
+        self.button_thumbnail = QPushButton('Generate test thumbnail')
         self.button_thumbnail.clicked.connect(lambda: self.handleThumbnail([self.eventBuilding.text(), self.eventCity.text(), self.eventDates.text()], self.image_thumbnail, self.thumbnail_force.isChecked()))
         layout.addRow(self.button_thumbnail, self.image_thumbnail)
 
@@ -211,15 +219,15 @@ class MainWindow(QWidget):
         page_timings = QWidget(self)
         layout = QFormLayout()
         page_timings.setLayout(layout)
-        layout.addRow(QLabel('<b>Define how to chop up the livestream into matches</b><br><i>Units are in seconds, decimals allowed.</i>'))
+        layout.addRow(QLabel('<b>Choose the match and score segments to include in each video.</b><br><i>Enter times in seconds. Decimal values are supported.</i>'))
         #2024 FRC values: [3, 155, 5, -7.25, 16.67]
         #2025 FRC values: [6, 155, 8, -8.06, 33]
-        self.season_secondsBefore = QLineEdit(str(3.94)); layout.addRow('Before Match :', self.season_secondsBefore)
-        self.season_matchDuration = QLineEdit(str(20+5+140)); layout.addRow('Match Duration :', self.season_matchDuration)
-        self.season_secondsAfterEnd = QLineEdit(str(3+2)); layout.addRow('After Match :', self.season_secondsAfterEnd)
-        self.season_secondsBeforePost = QLineEdit(str(-5.8)); layout.addRow('Before Post :', self.season_secondsBeforePost)
-        self.season_secondsAfterPost = QLineEdit(str(20+5.8)); layout.addRow('After Post :', self.season_secondsAfterPost)
-        layout.addRow(QLabel('<i>These should add to 179.94 to get a 3:00 video on YouTube</i>'))
+        self.season_secondsBefore = QLineEdit(str(3.94)); layout.addRow('Before match start:', self.season_secondsBefore)
+        self.season_matchDuration = QLineEdit(str(20+5+140)); layout.addRow('Match duration:', self.season_matchDuration)
+        self.season_secondsAfterEnd = QLineEdit(str(3+2)); layout.addRow('After match end:', self.season_secondsAfterEnd)
+        self.season_secondsBeforePost = QLineEdit(str(-5.8)); layout.addRow('Before score posting:', self.season_secondsBeforePost)
+        self.season_secondsAfterPost = QLineEdit(str(20+5.8)); layout.addRow('After score posting:', self.season_secondsAfterPost)
+        layout.addRow(QLabel('<i>The final video combines the match segment and the score segment.</i>'))
         svg_widget = QSvgWidget('./images/matchTrimDiagram.svg')
         svg_widget.setFixedSize(QSize(600, 150))
         layout.addRow(svg_widget)
@@ -261,21 +269,21 @@ class MainWindow(QWidget):
         self.dropdownBuildMethod.addItems(["ffmpeg", "moviepy"])
         self.adaptiveSyncCheckbox = QCheckBox('Adaptive audio timestamp sync')
         self.adaptiveSyncCheckbox.setChecked(True)
-        layout.addRow('Data Frequency :', self.dropdownDataFrequency)
-        layout.addRow('Video Source :', self.dropdownInput)
-        layout.addRow('Build Method :', self.dropdownBuildMethod)
+        layout.addRow('Recording mode:', self.dropdownDataFrequency)
+        layout.addRow('Video source:', self.dropdownInput)
+        layout.addRow('Build method:', self.dropdownBuildMethod)
         layout.addRow(self.adaptiveSyncCheckbox)
         layout.addRow(self.stacked_widget)
 
         # Video Input 1: Twitch Livestream
         video_input_Twitch = QFormLayout()
-        self.twitchUser = QLineEdit('firstinrobotics'); video_input_Twitch.addRow('Twitch User:', self.twitchUser)
-        self.twitch_button = QPushButton("Test Twitch Connection")
+        self.twitchUser = QLineEdit('firstinrobotics'); video_input_Twitch.addRow('Twitch username:', self.twitchUser)
+        self.twitch_button = QPushButton("Test Twitch connection")
         self.twitch_button.setStyleSheet('color: red')
         self.twitch_button.clicked.connect(self.test_twitch)
         video_input_Twitch.addRow(self.twitch_button)
         self.streamDelay = QLineEdit("4")
-        video_input_Twitch.addRow("Stream Delay [sec] (increase if late):", self.streamDelay)
+        video_input_Twitch.addRow("Stream delay (seconds):", self.streamDelay)
 
         Twitch_widget = QWidget()
         Twitch_widget.setLayout(video_input_Twitch)
@@ -283,16 +291,16 @@ class MainWindow(QWidget):
 
         # Video Input 2: Static Local File
         video_input_File = QFormLayout()
-        self.videoFile_button = QPushButton("Select File")
+        self.videoFile_button = QPushButton("Select file")
         self.videoFile_button.clicked.connect(lambda: self.getFileVideo(['mp4', 'mkv'], self.videoFile_button))
-        video_input_File.addRow('Video File:', self.videoFile_button)
+        video_input_File.addRow('Video file:', self.videoFile_button)
         # reference match details
         self.matchFormLocal = MatchForm(self.matchModel)
         video_input_File.addRow(self.matchFormLocal)
         # Create a video widget and add it to the layout
         self.video_widget = QVideoWidget()
         self.video_widget.setMinimumSize(480, 270)
-        self.play_button = QPushButton("Play 4 Seconds")
+        self.play_button = QPushButton("Preview 4 seconds")
         self.play_button.setStyleSheet('color: red')
         self.play_button.clicked.connect(lambda: self.play_video(self.media_player, self.videoFilepath, self.matchModel.timestamp()))
         video_input_File.addRow(self.play_button, self.video_widget)
@@ -306,20 +314,20 @@ class MainWindow(QWidget):
 
         # Video Input 3: YouTube Livestream
         video_input_YouTube_Live = QFormLayout()
-        self.youtubeUser = QLineEdit("FIRSTINRobotics"); video_input_YouTube_Live.addRow("Youtube Username:", self.youtubeUser)
+        self.youtubeUser = QLineEdit("FIRSTINRobotics"); video_input_YouTube_Live.addRow("YouTube username:", self.youtubeUser)
         # gets channel ID from username
-        self.youtube_button = QPushButton("Test YouTube Livestream Connection")
+        self.youtube_button = QPushButton("Test YouTube livestream connection")
         video_input_YouTube_Live.addRow(self.youtube_button)
         self.youtube_button.setStyleSheet("color: red")
         self.youtube_button.clicked.connect(self.get_yt_channel_ID)
         self.record_button = QPushButton(
-            "Start Recording YouTube Livestream! (Polls every ten seconds to see if channel is live)"
+            "Start recording YouTube livestream"
         )
         video_input_YouTube_Live.addRow(self.record_button)
         self.record_button.setStyleSheet("color: red")
         self.record_button.clicked.connect(lambda: start_recording(self.youtubeUserID))
         self.record_button.clicked.connect(self.recording_button)
-        self.stop_button = QPushButton("Stop Recording YouTube Livestream.")
+        self.stop_button = QPushButton("Stop recording YouTube livestream")
         video_input_YouTube_Live.addRow(self.stop_button)
         self.stop_button.setStyleSheet("color: red")
         self.stop_button.clicked.connect(stop_recording)
@@ -329,7 +337,7 @@ class MainWindow(QWidget):
 
         # Video Input 4: YouTube Video (Recording)
         video_input_YouTube_static = QFormLayout()
-        video_input_YouTube_static.addRow(QLabel("⚠️ WARNING: this method's resolution may be limited to 360p"))
+        video_input_YouTube_static.addRow(QLabel("YouTube downloads may be limited to 360p resolution."))
         self.youtubeURL = QLineEdit("https://www.youtube.com/watch?v="); video_input_YouTube_static.addRow("YouTube URL:", self.youtubeURL)
         self.matchFormYouTube = MatchForm(self.matchModel)
         video_input_YouTube_static.addRow(self.matchFormYouTube)
@@ -339,7 +347,7 @@ class MainWindow(QWidget):
         # Create a video widget and add it to the layout
         self.video_clip_widget = QVideoWidget()
         self.video_clip_widget.setMinimumSize(480, 270)
-        self.clip_button = QPushButton("Clip 4 Seconds")
+        self.clip_button = QPushButton("Download 4-second preview")
         self.clip_button.setStyleSheet('color: red')
         self.clip_button.clicked.connect(self.clip_video)
         video_input_YouTube_static.addRow(self.clip_button, self.video_clip_widget)
@@ -350,7 +358,7 @@ class MainWindow(QWidget):
 
         # Video Input 5: Live Local File
         mkv_input_File = QFormLayout()
-        self.mkvFile_button = QPushButton("Select File")
+        self.mkvFile_button = QPushButton("Select file")
         self.mkvFile_button.clicked.connect(lambda: self.getFileVideo(['mkv'], self.mkvFile_button, True))
         mkv_input_File.addRow(self.mkvFile_button)
         mkv_file_widget = QWidget()
@@ -367,9 +375,9 @@ class MainWindow(QWidget):
         layout = QFormLayout()
         page_TBA.setLayout(layout)
 
-        self.TBA_eventCode = QLineEdit(); layout.addRow(QLabel('TBA event code:'), self.TBA_eventCode)
-        self.TBA_AuthID = QLineEdit(); layout.addRow(QLabel('Associated Auth ID:'), self.TBA_AuthID)
-        self.TBA_AuthSecret = QLineEdit(); layout.addRow(QLabel('Associated Auth Secret:'), self.TBA_AuthSecret)
+        self.TBA_eventCode = QLineEdit(); layout.addRow(QLabel('TBA event key:'), self.TBA_eventCode)
+        self.TBA_AuthID = QLineEdit(); layout.addRow(QLabel('TBA Auth ID:'), self.TBA_AuthID)
+        self.TBA_AuthSecret = QLineEdit(); self.TBA_AuthSecret.setEchoMode(QLineEdit.EchoMode.Password); layout.addRow(QLabel('TBA Auth Secret:'), self.TBA_AuthSecret)
         
         # FMS pull button
         self.button_TBA = QPushButton("Verify TBA"); self.button_TBA.setStyleSheet('color: red')
@@ -380,11 +388,11 @@ class MainWindow(QWidget):
         add all tabs to window
         '''
         self.tab.addTab(page_welcome, 'Welcome')
-        self.tab.addTab(page_event, 'Event Info')
-        self.tab.addTab(page_YouTube, 'YouTube Settings')
-        self.tab.addTab(page_thumbnail, 'Thumbnail Info')
-        self.tab.addTab(page_timings, 'Match Timing')
-        self.tab.addTab(page_video, 'Video Input')
+        self.tab.addTab(page_event, 'Event information')
+        self.tab.addTab(page_YouTube, 'YouTube settings')
+        self.tab.addTab(page_thumbnail, 'Thumbnail settings')
+        self.tab.addTab(page_timings, 'Match timing')
+        self.tab.addTab(page_video, 'Video input')
         self.tab.addTab(page_TBA, 'The Blue Alliance')
         self.utilities = UtilitiesPage(self)
         self.tab.addTab(self.utilities, 'Utilities')
@@ -410,7 +418,7 @@ class MainWindow(QWidget):
         config_layout.addWidget(self.bake_config)
         main_layout.addWidget(config_container)
 
-        self.startThreadButton = QPushButton('Make The Sauce')
+        self.startThreadButton = QPushButton('Make the Sauce')
         self.startThreadButton.clicked.connect(self.start_sauce_thread)
         self.startThreadButton.setEnabled(False) # Disabled by default until CONFIG is baked
         main_layout.addWidget(self.startThreadButton)
@@ -424,7 +432,7 @@ class MainWindow(QWidget):
         self.reviewCheckbox.setChecked(review.enabled())
         self.reviewCheckbox.toggled.connect(review.set_enabled)
         review_layout.addWidget(self.reviewCheckbox)
-        self.dashboard_button = QPushButton('Open Dashboard')
+        self.dashboard_button = QPushButton('Open dashboard')
         self.dashboard_button.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(f'http://localhost:{dashboard.PORT}')))
         review_layout.addWidget(self.dashboard_button)
         main_layout.addWidget(review_container)
@@ -439,9 +447,9 @@ class MainWindow(QWidget):
         status_container = QWidget()
         status_layout = QHBoxLayout(status_container)
         
-        self.status_seen = QLabel(" SEEN: X")
-        self.status_built = QLabel("BUILT: X")
-        self.status_sent = QLabel(" SENT: X")
+        self.status_seen = QLabel(" Seen: X")
+        self.status_built = QLabel("Built: X")
+        self.status_sent = QLabel(" Sent: X")
         
         status_layout.addWidget(self.status_seen)
         status_layout.addWidget(self.status_built)
@@ -461,8 +469,8 @@ class MainWindow(QWidget):
         # Bake CONFIG re-enables this button; a second set of threads would build two clips at once
         # into the same input/temp files and corrupt them. Restart FRUIT to apply new settings instead.
         if getattr(self, 'thread_build', None) is not None and self.thread_build.is_alive():
-            self.startThreadButton.setText('Already running - restart FRUIT to apply new settings')
-            print('Make The Sauce is already running; ignoring second click. Restart FRUIT to apply a new CONFIG.')
+            self.startThreadButton.setText('Processing is active; restart FRUIT to apply changes')
+            print('Make the Sauce is already running; ignoring second click. Restart FRUIT to apply a new CONFIG.')
             return
 
         # clear the stop event
@@ -477,9 +485,9 @@ class MainWindow(QWidget):
         # Count finished matches
         count_finished = sum(1 for line in data if line.startswith(self.CONFIG['event']['code'].upper()))
 
-        self.status_seen.setText(f" SEEN: {count_finished}")
-        self.status_built.setText(f"BUILT: {count_finished}")
-        self.status_sent.setText(f" SENT: {count_finished}")
+        self.status_seen.setText(f" Seen: {count_finished}")
+        self.status_built.setText(f"Built: {count_finished}")
+        self.status_sent.setText(f" Sent: {count_finished}")
 
         # load API credentials
         with open("CREDENTIALS", "r") as file:
@@ -511,7 +519,7 @@ class MainWindow(QWidget):
             self.reviewCheckbox.blockSignals(False)
 
     def on_sauce_made(self, result):
-        self.startThreadButton.setText(f"{result} matches processed!")
+        self.startThreadButton.setText(f"{result} {'match' if result == 1 else 'matches'} processed")
         self.startThreadButton.setEnabled(True)
     
     def play_video(self, player, source:str, timestamp:str, duration:float=4.0):
@@ -567,17 +575,16 @@ class MainWindow(QWidget):
 
         if changeTabColor:
             self.tab.tabBar().setTabTextColor(5, QColor('green'))
-
     
     def clip_video(self):
-        self.clip_button.setText('Downloading...')
+        self.clip_button.setText('Downloading preview…')
         self.clip_button.setStyleSheet('color: teal'); self.clip_button.repaint();
         timestamp = self.matchModel.timestamp()
         self.match_timeMin, self.match_timeSec = map(float, timestamp.split(':'))
         timestamp_start = str(datetime.timedelta(minutes=int(self.match_timeMin), seconds=int(self.match_timeSec)))
         timestamp_end = str(datetime.timedelta(minutes=int(self.match_timeMin), seconds=int(self.match_timeSec)+5)) # 5 seconds of clip
         downloadYouTubeClip(self.youtubeURL.text(), timestamp_start, timestamp_end, 'input/temp/clip.mp4')
-        self.clip_button.setText('Clip 4 Seconds')
+        self.clip_button.setText('Download 4-second preview')
         self.clip_button.setStyleSheet('color: green'); self.clip_button.repaint();
         self.play_video(self.media_clip_player, 'input/temp/clip.mp4', "00:"+ str(self.match_timeSec-int(self.match_timeSec)), duration=4.0)
     
@@ -594,7 +601,7 @@ class MainWindow(QWidget):
         button.setText('📁'+response[0].split('/')[-1])
     
     def handleFMS(self, year, eventCode):
-        self.textFMS.setText('<font color="aqua">Loading event from FMS...</font>')
+        self.textFMS.setText('<font color="aqua">Loading event data from FIRST…</font>')
         self.textFMS.repaint()
 
         with open("CREDENTIALS", "r") as file:
@@ -614,16 +621,16 @@ class MainWindow(QWidget):
             
             # Report success of FMS pull
             if len(self.matches) != 0:
-                self.textFMS.setText('<font color="green">'+str(len(self.matches))+' matches found for '+eventCode+'.</font>')
+                self.textFMS.setText('<font color="green">'+str(len(self.matches))+(' match found for ' if len(self.matches) == 1 else ' matches found for ')+eventCode+'.</font>')
             else:
-                self.textFMS.setText('<font color="yellow">No matches found for '+eventCode+'. If event has begun, verify event code.</font>')
+                self.textFMS.setText('<font color="yellow">No matches are available for '+eventCode+'. If the event has started, check the event code.</font>')
             
             # Update status bar counters
-            self.status_seen.setText(f" SEEN: {len(self.matches)}")
+            self.status_seen.setText(f" Seen: {len(self.matches)}")
             with open('log/send.txt', 'r') as file:
                 eventMatchesSent = len([line.strip() for line in file if line.startswith(eventCode.upper())])
-            self.status_built.setText(f"BUILT: {eventMatchesSent}")
-            self.status_sent.setText(f" SENT: {eventMatchesSent}")
+            self.status_built.setText(f"Built: {eventMatchesSent}")
+            self.status_sent.setText(f" Sent: {eventMatchesSent}")
 
             # Update event fields if empty
             if self.event_name.text() == '':
@@ -644,12 +651,12 @@ class MainWindow(QWidget):
 
             self.tab.tabBar().setTabTextColor(1, QColor('green'))
         except json.JSONDecodeError:
-            self.textFMS.setText('<font color="red">Event does not exist!</font>')
+            self.textFMS.setText('<font color="red">Could not load the event. Check the season, event code, and credentials.</font>')
             self.tab.tabBar().setTabTextColor(1, QColor('red'))
     
     def test_twitch(self):
         
-        self.twitch_button.setText('Looking for Twitch user...')
+        self.twitch_button.setText('Looking up the Twitch channel…')
         self.twitch_button.setStyleSheet("color: aqua;")
         self.twitch_button.repaint()
 
@@ -658,48 +665,48 @@ class MainWindow(QWidget):
         
         try:
             self.twitchUserID = covertID2Username(CREDENTIALS['Twitch_clientID'], CREDENTIALS['Twitch_clientSecret'], self.twitchUser.text())
-            self.twitch_button.setText('User found! ID:'+ self.twitchUserID)
+            self.twitch_button.setText('Channel found. ID: '+ self.twitchUserID)
             self.twitch_button.setStyleSheet("color: green;")
             self.tab.tabBar().setTabTextColor(5, QColor('green'))
         except IndexError:
-            self.twitch_button.setText("Twitch user not found!")
+            self.twitch_button.setText("Twitch channel not found")
             self.twitch_button.setStyleSheet("color: red;")
             self.tab.tabBar().setTabTextColor(5, QColor('red'))
 
     def get_yt_channel_ID(self):
-        self.youtube_button.setText("Looking for Youtube user...")
+        self.youtube_button.setText("Looking up the YouTube channel…")
         self.youtube_button.setStyleSheet("color: aqua;")
         self.youtube_button.repaint()
         with open("CREDENTIALS", "r") as file:
             CREDENTIALS = json.load(file)  # contains API credentials
         try:
             self.youtubeUserID = getChannelIDFromHandle(self.youtubeUser.text())
-            self.youtube_button.setText("User ID Found!")
+            self.youtube_button.setText("YouTube channel found")
             self.youtube_button.setStyleSheet("color: green")
             self.tab.tabBar().setTabTextColor(5, QColor("green"))
         except IndexError:
-            self.youtube_button.setText("YouTube user not found!")
+            self.youtube_button.setText("YouTube channel not found")
             self.youtube_button.setStyleSheet("color: red")
 
     def recording_button(self):
-        self.record_button.setText("Looking for/recording livestream... check ./TOOLS/recordings/ for video file!")
+        self.record_button.setText("Waiting for or recording the livestream. Recordings are saved in TOOLS/recordings/.")
         self.record_button.setStyleSheet("color: aqua;")
         self.youtube_button.repaint()
 
     def handleTBA(self, TBA_Auth_Id, TBA_Auth_Secret, TBA_eventKey):
-        self.button_TBA.setText('Testing TBA API...')
+        self.button_TBA.setText('Verifying TBA credentials…')
         self.button_TBA.setStyleSheet('color: aqua')
         self.button_TBA.repaint()
 
         response = postTheBlueAlliance(TBA_Auth_Id, TBA_Auth_Secret, TBA_eventKey)
 
         if response.status_code == 200:
-            self.button_TBA.setText('TBA API Verified!')
+            self.button_TBA.setText('TBA credentials verified')
             self.button_TBA.setStyleSheet('color: green')
             self.button_TBA.repaint()
             self.tab.tabBar().setTabTextColor(6, QColor('green'))
         else:
-            self.button_TBA.setText('Issue with TBA API!')
+            self.button_TBA.setText('Could not verify TBA credentials')
             self.button_TBA.setStyleSheet('color: red')
             self.button_TBA.repaint()
     
@@ -740,7 +747,7 @@ class MainWindow(QWidget):
         super().closeEvent(event)
 
     def handleThumbnail(self, data, image, forceText = False):
-        image.setText('<font color="aqua">Generating thumbnail...</font>')
+        image.setText('<font color="aqua">Generating thumbnail…</font>')
         image.repaint()
 
         typMatchNumb = {'Q':70, 'P':13, 'F':3}
@@ -875,7 +882,6 @@ class MainWindow(QWidget):
             QMessageBox.warning(self, 'Could not bake CONFIG',
                 'Check that the selected recording is still available, timing values are valid numbers, '
                 'and FRUIT can write to its folder. CONFIG was not successfully baked.')
-
     
     def loadCONFIG(self, button):
         response = QFileDialog.getOpenFileName(
@@ -894,7 +900,7 @@ class MainWindow(QWidget):
                     CONFIG = json.load(file)
                 except json.JSONDecodeError as error:
                     print(f'Could not load {response[0]}: {error}')
-                    button.setText('Load CONFIG: file is not valid')
+                    button.setText('Load CONFIG: invalid file')
                     return
 
                 self.program.setCurrentText(CONFIG['program'])
@@ -975,7 +981,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     # ffmpeg is the only thing FRUIT needs from outside; use the one already on this PC, only offer to install it if missing
     if not shutil.which('ffmpeg') or not shutil.which('ffprobe'):
-        answer = QMessageBox.question(None, 'ffmpeg not found', 'FRUIT needs ffmpeg to cut match videos, and it was not found on this PC.\n\n'
+        answer = QMessageBox.question(None, 'FFmpeg not found', 'FRUIT needs ffmpeg to cut match videos, and it was not found on this PC.\n\n'
                                       'Install it now with winget? Restart FRUIT once the install finishes.')
         if answer == QMessageBox.StandardButton.Yes:
             subprocess.Popen(['cmd', '/c', 'winget install --id Gyan.FFmpeg -e & echo. & echo Done - restart FRUIT. & pause'],

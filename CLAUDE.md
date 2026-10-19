@@ -10,7 +10,7 @@ This fork adds a live dashboard and an optional "confirm each clip before upload
 
 ## Ground rules for secrets
 - Secret files live only in the FRUIT folder and are git-ignored: `CREDENTIALS`, `client_secret.json`,
-  `CONFIG` / `*.CONFIG`, `log/`. Never commit them, and never echo their values into chat, commits, issues or logs.
+  `CONFIG` / `*.CONFIG`, `youtube_token.json`, `log/`. Never commit them, and never echo their values into chat, commits, issues or logs.
 - Before overwriting or deleting any of them, copy it somewhere safe and check the copy isn't empty.
 - Before any `git push`, scan `git diff --cached` for keys, tokens, emails and personal paths (e.g. `C:\Users\<name>`).
 - The user signs in to Google / FIRST / TBA themselves. Don't ask for their passwords; ask them to paste only the
@@ -25,10 +25,10 @@ This fork adds a live dashboard and an optional "confirm each clip before upload
 ## 2. FIRST Events API (required) → `CREDENTIALS`
 1. Register at https://frc-events.firstinspires.org/services/api (FTC: https://ftc-events.firstinspires.org/services/API).
    The username is what they chose; the authorization token (a GUID) arrives by email.
-2. In FRUIT: "Set/Check Credentials" → FRC API Username + FRC API AuthorizationKey → Save & Close.
+2. In FRUIT: "API credentials" → FRC API Username + FRC API AuthorizationKey → Save and close.
    This writes `CREDENTIALS` (JSON; FRUIT creates an empty one on first start).
-3. Check: Event Info tab → season + **FIRST** event code (the short code shown on frc-events.firstinspires.org, not the TBA key)
-   → "Pull FMS". The event name filling in means the key works. A 401 means wrong username/token; "no matches"
+3. Check: Event information tab → season + **FIRST** event code (the short code shown on frc-events.firstinspires.org, not the TBA key)
+   → "Load event data". The event name filling in means the key works. A 401 means wrong username/token; "no matches"
    before the event starts is normal (the schedule appears once FMS publishes it).
 
 ## 3. YouTube (required for uploads) → `client_secret.json`
@@ -41,8 +41,10 @@ This fork adds a live dashboard and an optional "confirm each clip before upload
 5. Save it in the FRUIT folder as exactly `client_secret.json` (`client_secret.example` shows the shape).
 6. In FRUIT: YouTube tab → "Connect to YouTube" → browser sign-in. Pick the channel's account; on "Google hasn't
    verified this app" choose Advanced → continue (it's their own app). Scopes: youtube.upload + youtube.
-   The sign-in uses http://localhost:8080, so that port must be free. FRUIT doesn't store the token: reconnect
-   each time FRUIT starts.
+   The sign-in uses http://localhost:8080, so that port must be free. FRUIT saves the OAuth session in
+   git-ignored `youtube_token.json` and refreshes it when possible; use Connect to YouTube after restarting.
+   Old tokens are backed up under `log/oauth-backups/` before replacement. Google can still require new consent
+   (External apps in Testing generally expire refresh tokens after seven days). API keys cannot authorize uploads.
 7. Quota: uploads are expensive in YouTube API quota. Check APIs & Services → YouTube Data API v3 → Quotas before
    a big event and request an increase if needed.
 - Optional `Youtube_API_Key` (in CREDENTIALS) is only for recording a YouTube livestream; create an API key under
@@ -57,8 +59,8 @@ This fork adds a live dashboard and an optional "confirm each clip before upload
 
 ## 5. Run the event
 1. Record with OBS (HDMI capture) to .mkv. FRUIT: Video Source → "Live" + "Local File" → select the growing file.
-2. Fill the tabs, "Bake CONFIG", then "Make The Sauce" **once**. Watch the dashboard (http://localhost:8765, or the
-   next free port; "Open Dashboard" button). Optional: tick "Confirm each clip before upload".
+2. Fill the tabs, "Bake CONFIG", then "Make the Sauce" **once**. Watch the dashboard (http://localhost:8765, or the
+   next free port; "Open dashboard" button). Optional: tick "Confirm each clip before upload".
 3. To change settings or switch to a new recording file: close FRUIT, start it, "Load CONFIG", edit, bake, sauce.
 
 ## Troubleshooting from real events
