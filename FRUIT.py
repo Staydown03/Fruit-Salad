@@ -559,12 +559,15 @@ class MainWindow(QWidget):
             filter=f'Video file (*.{" *.".join(types)})'
         )
         
+        if not response[0]:
+            return  # Canceling the picker must not clear an existing selection.
         self.videoFilepath = response[0]
         
         buttonBind.setText('📁'+response[0].split('/')[-1])
 
         if changeTabColor:
             self.tab.tabBar().setTabTextColor(5, QColor('green'))
+
     
     def clip_video(self):
         self.clip_button.setText('Downloading...')
@@ -765,6 +768,17 @@ class MainWindow(QWidget):
         self.tab.tabBar().setTabTextColor(3, QColor('green'))
     
     def bakeCONFIG(self, button):
+        # Validate local input before reading its timestamps or touching CONFIG.
+        if self.dropdownInput.currentText() == 'Local File':
+            if not self.videoFilepath or not os.path.isfile(self.videoFilepath):
+                button.setStyleSheet('color: red')
+                button.setText('Bake CONFIG: select a video file')
+                self.startThreadButton.setEnabled(False)
+                self.tab.setCurrentIndex(5)  # Video Input
+                QMessageBox.warning(self, 'Recording required',
+                    'Select an existing recording in Video input before baking CONFIG. '
+                    'If a file was previously selected, it may have been moved or deleted.')
+                return
         try:
 
             original_text = button.text()
@@ -852,12 +866,16 @@ class MainWindow(QWidget):
             with open("CONFIG", "w") as file:
                 json.dump(CONFIG, file, indent=2)
             button.setStyleSheet('color: green')
-            button.setText('Bake CONFIG: SUCCESS!')
+            button.setText('Configuration saved')
         
-        except AttributeError as errorMessage:
+        except (AttributeError, TypeError, ValueError, OSError):
             button.setStyleSheet('color: red')
-            button.setText('Bake CONFIG: ERROR')
-            print(errorMessage)
+            button.setText('Configuration not saved')
+            self.startThreadButton.setEnabled(False)
+            QMessageBox.warning(self, 'Could not bake CONFIG',
+                'Check that the selected recording is still available, timing values are valid numbers, '
+                'and FRUIT can write to its folder. CONFIG was not successfully baked.')
+
     
     def loadCONFIG(self, button):
         response = QFileDialog.getOpenFileName(
