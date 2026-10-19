@@ -23,7 +23,7 @@ def media_duration(path):
          path],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True
+        text=True, timeout=30
     )
 
     duration = result.stdout.strip()
@@ -39,7 +39,7 @@ def media_duration(path):
         "-of", "csv=p=0",
         path],
         capture_output=True,
-        text=True
+        text=True, timeout=120
     )
 
     return max([float(x) for x in result.stdout.splitlines() if x.strip()])
@@ -91,7 +91,7 @@ def extract_audio_from_video(video_path: str, video_crop_start_sec: float = 0, v
     
     cmd.append(wav_path)
 
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True, timeout=120)
 
     return wav_path
 

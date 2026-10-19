@@ -1,3 +1,4 @@
+import google_auth_httplib2
 import google_auth_oauthlib.flow
 import googleapiclient.discovery
 import googleapiclient.errors
@@ -9,26 +10,17 @@ import requests
 from datetime import datetime
 
 def authenticate_youtube(SCOPES: list=["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"]):
-    """Authenticates a session with YouTube using oauth
-
-    Args:
-        SCOPES (list): YouTube Data api scopes 
-
-    Returns:
-        youtube : youtube session
-    """
-
-    # Get credentials and create an API client
+    """Authorize YouTube uploads using the Google resumable-upload transport."""
     flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file("client_secret.json", SCOPES)
     flow.redirect_uri = 'http://localhost:8080/'
-
     credentials = flow.run_local_server(port=8080)
+    transport = googleapiclient.http.build_http()
+    transport.timeout = 30
+    http = google_auth_httplib2.AuthorizedHttp(credentials, http=transport)
+    return googleapiclient.discovery.build("youtube", "v3", http=http)
 
-    youtube = googleapiclient.discovery.build("youtube", "v3", credentials=credentials)
 
-    return youtube
-
-def upload_video(youtube, media_file:str, request_body:dict, thumbnail: str=None, playlistID:str='', progress=None):
+def upload_video(youtube, media_file:str, request_body:dict, thumbnail: str=None, playlistID:str='', progress=None, on_uploaded=None):
     """Uploads a video to YouTube; uses 1700 quota (1600 upload + 50 thumbnail + 50 playlist)
 
     Args:
@@ -52,20 +44,35 @@ def upload_video(youtube, media_file:str, request_body:dict, thumbnail: str=None
 
     response = None
     while response is None:
-        status, response = request.next_chunk()
+        status, response = request.next_chunk(num_retries=3)
         if status:
             print(f"Uploaded {int(status.progress() * 100)}%")
             if progress:
                 progress(status.progress())
     
+    # Persist the ID before optional metadata calls that can fail independently.
+    if on_uploaded:
+        on_uploaded(response['id'])
+    finish_video(youtube, response['id'], thumbnail, playlistID)
+    return response['id']
+
+
+def finish_video(youtube, video_id, thumbnail=None, playlistID=''):
+    """Retry metadata on an existing upload without uploading the video again."""
     if thumbnail != None:
         request = youtube.thumbnails().set(
-            videoId=response['id'],
+            videoId=video_id,
             media_body=googleapiclient.http.MediaFileUpload(thumbnail)
         )
         response_thumbnail = request.execute()
     
     if playlistID != '':
+        # A previous insert may have succeeded even if its response was lost.
+        existing = youtube.playlistItems().list(
+            part='id', playlistId=playlistID, videoId=video_id, maxResults=1
+        ).execute()
+        if existing.get('items'):
+            return
         request = youtube.playlistItems().insert(
             part="snippet",
             body={
@@ -73,14 +80,13 @@ def upload_video(youtube, media_file:str, request_body:dict, thumbnail: str=None
                     "playlistId": playlistID,
                     "resourceId": {
                         "kind": "youtube#video",
-                        "videoId": response['id']
+                        "videoId": video_id
                     }
                 }
             }
         )
         response_playlist = request.execute()
     
-    return response['id']
 
 def formatYouTubeTitle(matchID:str, event_title:str, year:int, replay:bool=False):
     """

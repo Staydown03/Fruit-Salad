@@ -31,7 +31,7 @@ def postTheBlueAlliance(TBA_Auth_Id:str, TBA_Auth_Secret:str, TBA_eventKey:str, 
         "X-TBA-Auth-Sig": postHash
     }
 
-    response = requests.post('https://www.thebluealliance.com'+endpoint, headers=headers, json=data)
+    response = requests.post('https://www.thebluealliance.com'+endpoint, headers=headers, json=data, timeout=(10, 30))
 
     return response
 

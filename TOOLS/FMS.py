@@ -4,6 +4,14 @@ import base64       # API hashing
 import datetime     # str conversion
 import pytz     # apply timezone
 
+API_TIMEOUT = (10, 30)  # connect/read seconds; the worker retries failures on its next poll
+
+
+def _get_json(url, headers):
+    response = requests.get(url, headers=headers, timeout=API_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
 translateSymbol = {'Q': 'Quals', 'P': 'Playoffs', 'F': 'Finals'}
 
 # CREDENTIALS (dict): credentials from https://frc-events.firstinspires.org/services/api, contains "FRC_username" and "FRC_key" entries
@@ -72,14 +80,14 @@ def getMatchesFromFMS(year:int, eventCode:str, program:str, authUsr:str=CREDENTI
     headers = prepareHeadersFMS(authUsr, authKey)
 
     # make the API call (separately to prevent stale results)
-    responseQuals = requests.get(url+'?tournamentLevel=Qualification', headers=headers)
-    responsePlayoffs = requests.get(url+'?tournamentLevel=Playoff', headers=headers)
+    responseQuals = _get_json(url+'?tournamentLevel=Qualification', headers)
+    responsePlayoffs = _get_json(url+'?tournamentLevel=Playoff', headers)
 
     # combine the two match calls together
     if program == 'FRC':
-        matchesRaw = responseQuals.json()['Matches'] + responsePlayoffs.json()['Matches']
+        matchesRaw = responseQuals['Matches'] + responsePlayoffs['Matches']
     elif program == 'FTC':
-        matchesRaw = responseQuals.json()['matches'] + responsePlayoffs.json()['matches']
+        matchesRaw = responseQuals['matches'] + responsePlayoffs['matches']
     
     return matchesRaw
 
@@ -159,7 +167,7 @@ def getEventInfoFromFMS(year:int, eventCode:str, program:str, authUsr:str=CREDEN
     headers = prepareHeadersFMS(authUsr, authKey)
 
     # make the API call (separately to prevent stale results)
-    response = requests.get(url, headers=headers).json()
+    response = _get_json(url, headers)
 
     # extract event information from response (dear FIRST: Why is the capitalization of 'events' different?)
     if program == 'FRC':

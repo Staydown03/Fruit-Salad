@@ -56,7 +56,24 @@ def record_video(match_str:str, **fields):
         try:
             with open(VIDEOS_FILE) as file:
                 videos = json.load(file)
-        except (OSError, ValueError):
+        except FileNotFoundError:
             videos = {}
         videos.setdefault(match_str, {}).update(fields, updated=time.time())
-        _write(VIDEOS_FILE, videos)
+        # This is the recovery record: a failed write must prevent the worker from
+        # proceeding as though the upload were safely checkpointed.
+        tmp = VIDEOS_FILE + '.tmp'
+        with open(tmp, 'w') as file:
+            json.dump(videos, file, indent=1, default=str)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp, VIDEOS_FILE)
+
+
+def video_record(match_str):
+    """Load an upload checkpoint after a restart; never silently ignore a corrupt ledger."""
+    with _lock:
+        try:
+            with open(VIDEOS_FILE) as file:
+                return json.load(file).get(match_str, {})
+        except FileNotFoundError:
+            return {}
